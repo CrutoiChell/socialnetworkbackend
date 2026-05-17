@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Social Network Chat Test</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        body { font-family: Arial; padding: 20px; }
+        .section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; }
+        input, textarea { margin: 5px; padding: 8px; width: 300px; }
+        button { padding: 8px 15px; margin: 5px; cursor: pointer; }
+        #messages { height: 300px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; }
+        .message { margin: 5px 0; padding: 5px; background: #f0f0f0; }
+    </style>
+</head>
+<body>
+    <h1>Social Network Chat Test Client</h1>
+    
+    <div class="section">
+        <h3>1. Авторизация</h3>
+        <input id="token" type="text" placeholder="JWT Token" />
+        <button onclick="connect()">Подключиться</button>
+        <button onclick="disconnect()">Отключиться</button>
+        <div id="status">Не подключен</div>
+    </div>
+
+    <div class="section">
+        <h3>2. Глобальный чат</h3>
+        <textarea id="globalMsg" placeholder="Сообщение в глобальный чат"></textarea><br>
+        <button onclick="sendGlobal()">Отправить в глобальный чат</button>
+    </div>
+
+    <div class="section">
+        <h3>3. Личное сообщение</h3>
+        <input id="receiverId" type="number" placeholder="ID получателя" />
+        <textarea id="privateMsg" placeholder="Личное сообщение"></textarea><br>
+        <button onclick="sendPrivate()">Отправить личное сообщение</button>
+    </div>
+
+    <div class="section">
+        <h3>4. Онлайн пользователи</h3>
+        <button onclick="getOnline()">Получить список онлайн</button>
+        <div id="online"></div>
+    </div>
+
+    <div class="section">
+        <h3>Сообщения</h3>
+        <div id="messages"></div>
+    </div>
+
+    <script>
+        let socket = null;
+
+        function connect() {
+            const token = document.getElementById('token').value;
+            if (!token) {
+                alert('Введите токен!');
+                return;
+            }
+
+            socket = io('http://localhost:4000', {
+                auth: { token }
+            });
+
+            socket.on('connect', () => {
+                document.getElementById('status').textContent = 'Подключен ✓';
+                addMessage('Подключено к серверу', 'system');
+            });
+
+            socket.on('disconnect', () => {
+                document.getElementById('status').textContent = 'Отключен';
+                addMessage('Отключено от сервера', 'system');
+            });
+
+            socket.on('newGlobalMessage', (msg) => {
+                addMessage(`[Глобальный] ${msg.user.username}: ${msg.text}`, 'global');
+            });
+
+            socket.on('newMessage', (msg) => {
+                addMessage(`[Личное от ${msg.sender.username}]: ${msg.text}`, 'private');
+            });
+
+            socket.on('messageSent', (msg) => {
+                addMessage(`[Отправлено]: ${msg.text}`, 'sent');
+            });
+
+            socket.on('userOnline', ({ userId }) => {
+                addMessage(`Пользователь ${userId} онлайн`, 'system');
+            });
+
+            socket.on('userOffline', ({ userId }) => {
+                addMessage(`Пользователь ${userId} оффлайн`, 'system');
+            });
+
+            socket.on('onlineUsers', (users) => {
+                document.getElementById('online').textContent = 'Онлайн: ' + users.join(', ');
+            });
+
+            socket.on('error', ({ message }) => {
+                addMessage(`Ошибка: ${message}`, 'error');
+            });
+        }
+
+        function disconnect() {
+            if (socket) {
+                socket.disconnect();
+                socket = null;
+            }
+        }
+
+        function sendGlobal() {
+            if (!socket) {
+                alert('Сначала подключитесь!');
+                return;
+            }
+            const text = document.getElementById('globalMsg').value;
+            if (text) {
+                socket.emit('sendGlobalMessage', { text });
+                document.getElementById('globalMsg').value = '';
+            }
+        }
+
+        function sendPrivate() {
+            if (!socket) {
+                alert('Сначала подключитесь!');
+                return;
+            }
+            const receiverId = parseInt(document.getElementById('receiverId').value);
+            const text = document.getElementById('privateMsg').value;
+            if (receiverId && text) {
+                socket.emit('sendMessage', { receiverId, text });
+                document.getElementById('privateMsg').value = '';
+            }
+        }
+
+        function getOnline() {
+            if (!socket) {
+                alert('Сначала подключитесь!');
+                return;
+            }
+            socket.emit('getOnlineUsers');
+        }
+
+        function addMessage(text, type) {
+            const div = document.createElement('div');
+            div.className = 'message';
+            div.style.background = {
+                'system': '#e3f2fd',
+                'global': '#f1f8e9',
+                'private': '#fff3e0',
+                'sent': '#f3e5f5',
+                'error': '#ffebee'
+            }[type] || '#f0f0f0';
+            div.textContent = `[${new Date().toLocaleTimeString()}] ${text}`;
+            document.getElementById('messages').appendChild(div);
+            document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
+        }
+    </script>
+</body>
+</html>

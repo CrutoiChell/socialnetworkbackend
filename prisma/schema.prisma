@@ -1,0 +1,304 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PostsPrivacy {
+  ALL
+  FRIENDS
+  ONLY_ME
+}
+
+enum UserRole {
+  USER
+  ADMIN
+  MODERATOR
+}
+
+enum MessageType {
+  TEXT
+  AUDIO
+}
+
+enum PostMediaType {
+  IMAGE
+  VIDEO
+}
+
+enum NotificationType {
+  LIKE
+  COMMENT
+  FOLLOW
+  VOTE
+  MENTION
+}
+
+enum UserTheme {
+  DEFAULT
+  NEBULA
+  SUPERNOVA
+}
+
+enum XpActionType {
+  LIKE
+  REPOST
+  FOLLOW
+  DAILY
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  username  String   @unique
+  password  String
+  avatar    String?
+  createdAt DateTime @default(now())
+  role      UserRole @default(USER)
+  isBlocked Boolean  @default(false)
+  isPremium Boolean  @default(false)
+  premiumUntil DateTime?
+  boostTokens Int @default(3)
+  boostTokensRefreshedAt DateTime @default(now())
+  xp        Int      @default(0)
+  level     Int      @default(1)
+  lastLoginAt DateTime?
+  postsPrivacy PostsPrivacy @default(ALL)
+  /// Выбранный Premium-стиль ника: 'tier-junk' | 'tier-dust' | 'tier-meteor' | 'tier-supernova' | 'tier-pulsar' | 'premium' | null
+  selectedColorStyle String?
+  /// Когда пользователь последний раз менял @username (для кулдауна 30 дней).
+  lastUsernameChange DateTime?
+  /// Тема оформления интерфейса. SUPERNOVA — только при активном Premium.
+  selectedTheme UserTheme @default(DEFAULT)
+
+  sentMessages     Message[]     @relation("sender")
+  receivedMessages Message[]     @relation("receiver")
+  globalMessages   GlobalMessage[]
+  
+  posts            Post[]
+  comments         Comment[]
+  likes            Like[]
+  pollVotes        PollVote[]
+  bookmarks        Bookmark[]
+  xpLogs           XpLog[]
+  notificationsReceived Notification[] @relation("notificationRecipient")
+  notificationsSent     Notification[] @relation("notificationSender")
+  
+  followers        Subscription[] @relation("following")
+  following        Subscription[] @relation("follower")
+  
+  friendsInitiated Friendship[] @relation("user1")
+  friendsReceived  Friendship[] @relation("user2")
+
+  @@map("users")
+}
+
+model Message {
+  id         Int      @id @default(autoincrement())
+  text       String?
+  type       MessageType @default(TEXT)
+  audioData  String?
+  senderId   Int
+  receiverId Int
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @default(now()) @updatedAt
+  isEdited   Boolean  @default(false)
+
+  sender   User @relation("sender", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver User @relation("receiver", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  @@index([senderId, createdAt(sort: Desc)])
+  @@index([receiverId, createdAt(sort: Desc)])
+  @@map("messages")
+}
+
+model GlobalMessage {
+  id        Int      @id @default(autoincrement())
+  text      String
+  userId    Int
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("global_messages")
+}
+
+model Post {
+  id        Int      @id @default(autoincrement())
+  content   String
+  embedUrl  String?
+  isAd      Boolean  @default(false)
+  adTargetUrl String?
+  isBoosted Boolean  @default(false)
+  locationName String?
+  locationLat  Float?
+  locationLng  Float?
+  isPoll    Boolean  @default(false)
+  pollId    Int?     @unique
+  parentPostId Int?
+  userId    Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+  isEdited  Boolean  @default(false)
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  poll     Poll?     @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  parentPost Post?   @relation("PostReposts", fields: [parentPostId], references: [id], onDelete: SetNull)
+  reposts  Post[]    @relation("PostReposts")
+  medias   PostMedia[]
+  comments Comment[]
+  likes    Like[]
+  bookmarks Bookmark[]
+
+  @@index([userId])
+  @@index([parentPostId])
+  @@index([createdAt(sort: Desc)])
+  @@index([isBoosted(sort: Desc), createdAt(sort: Desc)])
+  @@map("posts")
+}
+
+model PostMedia {
+  id        Int           @id @default(autoincrement())
+  url       String
+  type      PostMediaType
+  isSpoiler Boolean       @default(false)
+  postId    Int
+  createdAt DateTime      @default(now())
+
+  post      Post          @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([postId])
+  @@map("post_medias")
+}
+
+model Poll {
+  id        Int        @id @default(autoincrement())
+  question  String
+  options   Json
+  allowChangeVote Boolean @default(false)
+  createdAt DateTime   @default(now())
+
+  post      Post?
+  votes     PollVote[]
+
+  @@map("polls")
+}
+
+model PollVote {
+  id          Int      @id @default(autoincrement())
+  pollId      Int
+  userId      Int
+  optionIndex Int
+  createdAt   DateTime @default(now())
+
+  poll        Poll     @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([pollId, userId])
+  @@index([pollId])
+  @@index([userId])
+  @@map("poll_votes")
+}
+
+model Comment {
+  id        Int      @id @default(autoincrement())
+  text      String
+  userId    Int
+  postId    Int
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([postId, createdAt(sort: Desc)])
+  @@map("comments")
+}
+
+model Like {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  postId    Int
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, postId])
+  @@index([postId])
+  @@map("likes")
+}
+
+model Subscription {
+  id          Int      @id @default(autoincrement())
+  followerId  Int
+  followingId Int
+  createdAt   DateTime @default(now())
+
+  follower  User @relation("follower", fields: [followerId], references: [id], onDelete: Cascade)
+  following User @relation("following", fields: [followingId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, followingId])
+  @@map("subscriptions")
+}
+
+model Friendship {
+  id        Int      @id @default(autoincrement())
+  user1Id   Int
+  user2Id   Int
+  createdAt DateTime @default(now())
+
+  user1 User @relation("user1", fields: [user1Id], references: [id], onDelete: Cascade)
+  user2 User @relation("user2", fields: [user2Id], references: [id], onDelete: Cascade)
+
+  @@unique([user1Id, user2Id])
+  @@map("friendships")
+}
+
+model Bookmark {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  postId    Int
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, postId])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([postId])
+  @@map("bookmarks")
+}
+
+model Notification {
+  id        Int              @id @default(autoincrement())
+  userId    Int
+  senderId  Int
+  type      NotificationType
+  entityId  Int?
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  user      User             @relation("notificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  sender    User             @relation("notificationSender", fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead, createdAt(sort: Desc)])
+  @@index([senderId])
+  @@map("notifications")
+}
+
+model XpLog {
+  id         Int          @id @default(autoincrement())
+  userId     Int
+  actionType XpActionType
+  entityId   Int
+  createdAt  DateTime     @default(now())
+
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, actionType, entityId])
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("xp_logs")
+}
