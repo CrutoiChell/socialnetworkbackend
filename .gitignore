@@ -48,9 +48,15 @@ dev.db-journal
 # Загрузки пользователей — только сохраняем структуру папок
 uploads/*
 !uploads/.gitkeep
+!uploads/*.jpg
+!uploads/*.png
+!uploads/*.gif
 !uploads/avatars/
 uploads/avatars/*
 !uploads/avatars/.gitkeep
+!uploads/avatars/*.jpg
+!uploads/avatars/*.png
+!uploads/avatars/*.gif
 
 # Backups
 backups/
