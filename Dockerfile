@@ -40,4 +40,4 @@ RUN mkdir -p uploads/avatars
 EXPOSE 4000
 
 # Перед стартом синхронизируем схему с БД и поднимаем сервер.
-CMD ["sh", "-c", "set -e && echo '==> Checking DATABASE_URL...' && if [ -z \"$DATABASE_URL\" ]; then echo 'ERROR: DATABASE_URL not set!'; exit 1; fi && echo '==> Syncing database schema...' && npx prisma db push --skip-generate --accept-data-loss && echo '==> Starting server...' && node dist/main.js"]
+CMD ["sh", "-c", "set -e && echo '==> Checking DATABASE_URL...' && if [ -z \"$DATABASE_URL\" ]; then echo 'ERROR: DATABASE_URL not set!'; exit 1; fi && echo '==> Syncing database schema...' && npx prisma db push --skip-generate --accept-data-loss && echo '==> Starting server...' && node dist/src/main.js"]
