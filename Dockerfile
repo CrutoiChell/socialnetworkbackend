@@ -39,5 +39,7 @@ RUN mkdir -p uploads/avatars
 
 EXPOSE 4000
 
-# Перед стартом применяем миграции и поднимаем сервер
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main.js"]
+# Перед стартом синхронизируем схему с БД и поднимаем сервер.
+# `db push` создаёт/обновляет таблицы напрямую из schema.prisma —
+# это надёжнее чем `migrate deploy` для первого деплоя на чистую БД.
+CMD ["sh", "-c", "npx prisma db push --skip-generate --accept-data-loss && node dist/main.js"]
