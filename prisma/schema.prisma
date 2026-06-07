@@ -42,6 +42,9 @@ enum UserTheme {
   DEFAULT
   NEBULA
   SUPERNOVA
+  PULSAR_RING
+  AURORA_DEEP
+  VOID_HORIZON
 }
 
 enum XpActionType {
@@ -57,6 +60,7 @@ model User {
   username  String   @unique
   password  String
   avatar    String?
+  banner    String?
   createdAt DateTime @default(now())
   role      UserRole @default(USER)
   isBlocked Boolean  @default(false)

@@ -5,6 +5,7 @@ import {
   ForbiddenException,
   ConflictException,
 } from '@nestjs/common';
+import { UserTheme } from '@prisma/client';
 import { mapPublicUser, toAbsoluteMediaUrl } from '../common/public-url';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -37,6 +38,7 @@ export class UsersService {
         username: true,
         email: true,
         avatar: true,
+        banner: true,
         role: true,
         isBlocked: true,
         isPremium: true,
@@ -347,6 +349,7 @@ export class UsersService {
         username: true,
         email: true,
         avatar: true,
+        banner: true,
         role: true,
         isBlocked: true,
         isPremium: true,
@@ -366,6 +369,46 @@ export class UsersService {
     };
   }
 
+  async updateBanner(userId: number, bannerPath: string | null) {
+    const targetUser = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { isPremium: true, premiumUntil: true },
+    });
+    if (!targetUser) throw new NotFoundException('User not found');
+    if (!this.isPremiumActive(targetUser)) {
+      throw new BadRequestException(
+        'Кастомный баннер профиля доступен только пользователям Stelar Premium',
+      );
+    }
+
+    const user = await this.prisma.user.update({
+      where: { id: userId },
+      data: { banner: bannerPath },
+      select: {
+        id: true,
+        username: true,
+        email: true,
+        avatar: true,
+        banner: true,
+        role: true,
+        isBlocked: true,
+        isPremium: true,
+        premiumUntil: true,
+        boostTokens: true,
+        xp: true,
+        level: true,
+        selectedColorStyle: true,
+        lastUsernameChange: true,
+        selectedTheme: true,
+      },
+    });
+
+    return {
+      user: mapPublicUser(user),
+      message: bannerPath ? 'Banner updated successfully' : 'Banner removed',
+    };
+  }
+
   private isPremiumActive(user: { isPremium: boolean; premiumUntil: Date | null }) {
     if (!user.isPremium) return false;
     if (!user.premiumUntil) return true;
@@ -376,32 +419,54 @@ export class UsersService {
    * Меняет тему оформления. DEFAULT и NEBULA доступны всем.
    * SUPERNOVA — только при активном Premium (см. `isPremiumActive`).
    */
-  async setTheme(userId: number, theme: 'DEFAULT' | 'NEBULA' | 'SUPERNOVA') {
-    if (!['DEFAULT', 'NEBULA', 'SUPERNOVA'].includes(theme)) {
+  async setTheme(userId: number, theme: string) {
+    const PREMIUM_THEMES = new Set(['NEBULA', 'SUPERNOVA', 'AURORA_DEEP', 'VOID_HORIZON']);
+    const LEVEL_GATED_THEMES: Record<string, number> = {
+      PULSAR_RING: 100,
+    };
+    const ALLOWED_THEMES = new Set([
+      'DEFAULT',
+      'NEBULA',
+      'SUPERNOVA',
+      'PULSAR_RING',
+      'AURORA_DEEP',
+      'VOID_HORIZON',
+    ]);
+
+    if (!ALLOWED_THEMES.has(theme)) {
       throw new BadRequestException('Invalid theme');
     }
 
-    if (theme === 'SUPERNOVA') {
+    if (PREMIUM_THEMES.has(theme) || LEVEL_GATED_THEMES[theme] != null) {
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
-        select: { isPremium: true, premiumUntil: true },
+        select: { isPremium: true, premiumUntil: true, level: true },
       });
       if (!user) throw new NotFoundException('User not found');
-      if (!this.isPremiumActive(user)) {
+
+      if (PREMIUM_THEMES.has(theme) && !this.isPremiumActive(user)) {
         throw new ForbiddenException(
-          'Тема SUPERNOVA доступна только при активном Premium',
+          `Тема ${theme} доступна только при активном Premium`,
+        );
+      }
+
+      const requiredLevel = LEVEL_GATED_THEMES[theme];
+      if (requiredLevel != null && (user.level ?? 0) < requiredLevel) {
+        throw new ForbiddenException(
+          `Тема ${theme} открывается на уровне ${requiredLevel}`,
         );
       }
     }
 
     const updated = await this.prisma.user.update({
       where: { id: userId },
-      data: { selectedTheme: theme },
+      data: { selectedTheme: theme as UserTheme },
       select: {
         id: true,
         username: true,
         email: true,
         avatar: true,
+        banner: true,
         role: true,
         isBlocked: true,
         isPremium: true,
@@ -425,13 +490,20 @@ export class UsersService {
    * Premium-only: сохраняет выбранный стиль ника.
    * Допустимые значения должны входить в ALLOWED_COLOR_STYLES; null — сброс на дефолт.
    */
-  async customizeColor(userId: number, colorStyle: string | null) {    const ALLOWED_COLOR_STYLES = new Set([
+  async customizeColor(userId: number, colorStyle: string | null) {
+    const ALLOWED_COLOR_STYLES = new Set([
       'tier-junk',
       'tier-dust',
       'tier-meteor',
       'tier-supernova',
       'tier-pulsar',
       'premium',
+      'premium-cosmic',
+      'premium-aurora',
+      'premium-plasma',
+      'premium-gold',
+      'premium-stardust',
+      'premium-void',
     ]);
 
     if (colorStyle != null && !ALLOWED_COLOR_STYLES.has(colorStyle)) {
@@ -471,6 +543,7 @@ export class UsersService {
         username: true,
         email: true,
         avatar: true,
+        banner: true,
         role: true,
         isBlocked: true,
         isPremium: true,
@@ -558,6 +631,7 @@ export class UsersService {
         username: true,
         email: true,
         avatar: true,
+        banner: true,
         role: true,
         isBlocked: true,
         isPremium: true,
@@ -600,6 +674,7 @@ export class UsersService {
         username: true,
         email: true,
         avatar: true,
+        banner: true,
         role: true,
         isBlocked: true,
         isPremium: true,
@@ -881,6 +956,7 @@ export class UsersService {
         username: true,
         email: true,
         avatar: true,
+        banner: true,
         role: true,
         isBlocked: true,
         isPremium: true,

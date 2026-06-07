@@ -16,11 +16,24 @@ export function toAbsoluteMediaUrl(
   const trimmed = String(path).trim();
   if (trimmed === '') return null;
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  // Кастомные схемы — пресеты-градиенты, не трогаем.
+  if (
+    trimmed.startsWith('preset:') ||
+    trimmed.startsWith('gradient:') ||
+    trimmed.startsWith('data:') ||
+    trimmed.startsWith('blob:')
+  ) {
+    return trimmed;
+  }
   const base = publicBaseUrl();
   const p = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
   return `${base}${p}`;
 }
 
-export function mapPublicUser<T extends { avatar?: string | null }>(u: T): T {
-  return { ...u, avatar: toAbsoluteMediaUrl(u.avatar) } as T;
+export function mapPublicUser<T extends { avatar?: string | null; banner?: string | null }>(u: T): T {
+  return {
+    ...u,
+    avatar: toAbsoluteMediaUrl(u.avatar),
+    banner: toAbsoluteMediaUrl(u.banner),
+  } as T;
 }

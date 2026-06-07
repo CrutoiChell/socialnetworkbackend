@@ -7,6 +7,12 @@ const ALLOWED = [
   'tier-supernova',
   'tier-pulsar',
   'premium',
+  'premium-cosmic',
+  'premium-aurora',
+  'premium-plasma',
+  'premium-gold',
+  'premium-stardust',
+  'premium-void',
 ] as const;
 
 export class CustomizeColorDto {

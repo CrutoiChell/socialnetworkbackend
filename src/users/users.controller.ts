@@ -26,8 +26,10 @@ import { RolesGuard } from '../auth/roles.guard';
 import { CustomizeColorDto } from './dto/customize-color.dto';
 import { ChangeUsernameDto } from './dto/change-username.dto';
 import { SetThemeDto } from './dto/set-theme.dto';
+import { UpdateBannerDto } from './dto/update-banner.dto';
 
 const avatarsDir = join(process.cwd(), 'uploads', 'avatars');
+const bannersDir = join(process.cwd(), 'uploads', 'banners');
 
 function parseUserIdParam(id: string): number {
   if (id == null || String(id).trim() === '') {
@@ -163,6 +165,53 @@ export class UsersController {
 
     const avatarUrl = `/uploads/avatars/${file.filename}`;
     return this.users.updateAvatar(userId, avatarUrl);
+  }
+
+  @Post('me/banner')
+  @UseInterceptors(
+    FileInterceptor('banner', {
+      storage: diskStorage({
+        destination: (_req, _file, cb) => {
+          if (!existsSync(bannersDir))
+            mkdirSync(bannersDir, { recursive: true });
+          cb(null, bannersDir);
+        },
+        filename: (_req, file, cb) => {
+          const ext = extname(file.originalname) || '.jpg';
+          cb(null, `${randomUUID()}${ext}`);
+        },
+      }),
+      limits: { fileSize: 10 * 1024 * 1024 },
+      fileFilter: (_req, file, cb) => {
+        if (!/^image\/(jpeg|png|gif|webp)$/.test(file.mimetype)) {
+          cb(new Error('Only JPEG, PNG, GIF, WebP'), false);
+          return;
+        }
+        cb(null, true);
+      },
+    }),
+  )
+  async uploadBanner(
+    @CurrentUserId() userId: number,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) throw new BadRequestException('No file (field name: banner)');
+    const bannerUrl = `/uploads/banners/${file.filename}`;
+    return this.users.updateBanner(userId, bannerUrl);
+  }
+
+  @Patch('me/banner')
+  setBannerByUrl(
+    @CurrentUserId() userId: number,
+    @Body() dto: UpdateBannerDto,
+  ) {
+    const value = dto.bannerUrl?.trim() ? dto.bannerUrl.trim() : null;
+    return this.users.updateBanner(userId, value);
+  }
+
+  @Delete('me/banner')
+  removeBanner(@CurrentUserId() userId: number) {
+    return this.users.updateBanner(userId, null);
   }
 
   @Get(':id/relationship')
