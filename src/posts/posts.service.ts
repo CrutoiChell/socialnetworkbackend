@@ -18,7 +18,9 @@ import { CreateCommentDto } from './dto/create-comment.dto';
 const FEED_FIRST_PAGE_LAYOUT_SIZE = 3;
 const FEED_PINNED_MEDIA_COUNT = 5;
 const PREMIUM_MAX_FILE_SIZE = 30 * 1024 * 1024;
-const DEFAULT_MAX_FILE_SIZE = 15 * 1024 * 1024;
+const DEFAULT_MAX_FILE_SIZE = 8 * 1024 * 1024;
+const PREMIUM_MAX_FILES = 10;
+const DEFAULT_MAX_FILES = 3;
 
 const feedOrderByRecent: Prisma.PostOrderByWithRelationInput[] = [
   { isBoosted: 'desc' },
@@ -349,23 +351,45 @@ export class PostsService {
     return user.premiumUntil.getTime() > Date.now();
   }
 
-  private async assertUploadSizeLimit(userId: number, files: Express.Multer.File[]) {
+  private async assertUploadLimits(userId: number, files: Express.Multer.File[]) {
     if (files.length === 0) return;
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { isPremium: true, premiumUntil: true },
     });
     if (!user) throw new NotFoundException('User not found');
-    const maxSize = this.isPremiumActive(user) ? PREMIUM_MAX_FILE_SIZE : DEFAULT_MAX_FILE_SIZE;
+    const premium = this.isPremiumActive(user);
+
+    const maxFiles = premium ? PREMIUM_MAX_FILES : DEFAULT_MAX_FILES;
+    if (files.length > maxFiles) {
+      throw new BadRequestException(
+        premium
+          ? `К посту можно прикрепить не более ${maxFiles} файлов`
+          : `Без Премиума к посту можно прикрепить не более ${maxFiles} файлов. С Премиумом — до ${PREMIUM_MAX_FILES}`,
+      );
+    }
+
+    const maxSize = premium ? PREMIUM_MAX_FILE_SIZE : DEFAULT_MAX_FILE_SIZE;
     const oversized = files.find((file) => file.size > maxSize);
     if (oversized) {
       const maxMb = Math.floor(maxSize / (1024 * 1024));
-      throw new BadRequestException(`Файл слишком большой. Максимальный размер: ${maxMb}МБ`);
+      throw new BadRequestException(
+        premium
+          ? `Файл слишком большой. Максимальный размер: ${maxMb}МБ`
+          : `Файл слишком большой. Без Премиума максимальный размер: ${maxMb}МБ (с Премиумом — до ${Math.floor(PREMIUM_MAX_FILE_SIZE / (1024 * 1024))}МБ)`,
+      );
+    }
+
+    if (!premium) {
+      const hasVideo = files.some((file) => file.mimetype.startsWith('video/'));
+      if (hasVideo) {
+        throw new BadRequestException('Загрузка видео в посты доступна только с Премиумом');
+      }
     }
   }
 
   async createPost(userId: number, dto: CreatePostDto, files: Express.Multer.File[]) {
-    await this.assertUploadSizeLimit(userId, files);
+    await this.assertUploadLimits(userId, files);
     const authorMeta = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { role: true },

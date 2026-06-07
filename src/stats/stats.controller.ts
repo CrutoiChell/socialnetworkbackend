@@ -9,4 +9,9 @@ export class StatsController {
   getOverview() {
     return this.stats.getOverview();
   }
+
+  @Get('global')
+  getGlobal() {
+    return this.stats.getGlobal();
+  }
 }

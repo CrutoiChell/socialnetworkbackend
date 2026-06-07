@@ -37,7 +37,9 @@ type ReqWithUser = {
 export class PostsController {
   constructor(private posts: PostsService) {}
 
-  private static readonly postMediaInterceptor = FilesInterceptor('files', 5, {
+  // Hard server-side ceiling (matches the Premium tier); per-tier limits
+  // (file count, size, video access) are enforced in PostsService.assertUploadLimits.
+  private static readonly postMediaInterceptor = FilesInterceptor('files', 10, {
     storage: diskStorage({
       destination: (_req, _file, cb) => {
         if (!existsSync(uploadsDir)) mkdirSync(uploadsDir, { recursive: true });

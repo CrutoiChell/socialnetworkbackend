@@ -11,6 +11,14 @@ export type OverviewStats = {
   newComments24h: number;
 };
 
+export type GlobalStats = {
+  totalUsers: number;
+  totalPosts: number;
+  totalFriendships: number;
+  totalGlobalMessages: number;
+  totalComments: number;
+};
+
 @Injectable()
 export class StatsService {
   constructor(
@@ -42,6 +50,25 @@ export class StatsService {
       globalMessages24h,
       privateMessages24h,
       newComments24h,
+    };
+  }
+
+  async getGlobal(): Promise<GlobalStats> {
+    const [totalUsers, totalPosts, totalFriendships, totalGlobalMessages, totalComments] =
+      await Promise.all([
+        this.prisma.user.count(),
+        this.prisma.post.count(),
+        this.prisma.friendship.count(),
+        this.prisma.globalMessage.count(),
+        this.prisma.comment.count(),
+      ]);
+
+    return {
+      totalUsers,
+      totalPosts,
+      totalFriendships,
+      totalGlobalMessages,
+      totalComments,
     };
   }
 }
