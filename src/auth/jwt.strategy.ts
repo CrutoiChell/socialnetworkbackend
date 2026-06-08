@@ -3,6 +3,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import { isUserCurrentlyBlocked } from '../common/block-status';
 import type { UserRole } from '@prisma/client';
 
 @Injectable()
@@ -28,10 +29,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
     const user = await this.prisma.user.findUnique({
       where: { id: sub },
-      select: { id: true, email: true, username: true, role: true, isBlocked: true },
+      select: { id: true, email: true, username: true, role: true, isBlocked: true, blockedUntil: true },
     });
     if (!user) throw new UnauthorizedException();
-    if (user.isBlocked) throw new UnauthorizedException();
+    if (await isUserCurrentlyBlocked(this.prisma, user)) throw new UnauthorizedException();
 
     return {
       userId: user.id,

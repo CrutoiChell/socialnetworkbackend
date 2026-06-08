@@ -79,6 +79,9 @@ export class UsersService {
           isPremium: true,
           level: true,
           selectedColorStyle: true,
+          role: true,
+          isBlocked: true,
+          blockedUntil: true,
         },
         take: 20,
       })
@@ -651,7 +654,26 @@ export class UsersService {
     };
   }
 
-  async blockUser(targetUserId: number, moderatorUserId: number) {
+  private readonly moderationUserSelect = {
+    id: true,
+    username: true,
+    email: true,
+    avatar: true,
+    banner: true,
+    role: true,
+    isBlocked: true,
+    blockedUntil: true,
+    isPremium: true,
+    premiumUntil: true,
+    boostTokens: true,
+    xp: true,
+    level: true,
+    selectedColorStyle: true,
+    lastUsernameChange: true,
+    selectedTheme: true,
+  } as const;
+
+  async blockUser(targetUserId: number, moderatorUserId: number, hours?: number) {
     if (targetUserId === moderatorUserId) {
       throw new BadRequestException('You cannot block yourself');
     }
@@ -666,9 +688,86 @@ export class UsersService {
       throw new BadRequestException('Admin user cannot be blocked');
     }
 
+    const blockedUntil = hours ? new Date(Date.now() + hours * 60 * 60 * 1000) : null;
+
     const updated = await this.prisma.user.update({
       where: { id: targetUserId },
-      data: { isBlocked: true },
+      data: { isBlocked: true, blockedUntil },
+      select: this.moderationUserSelect,
+    });
+
+    return {
+      message: blockedUntil
+        ? `User blocked until ${blockedUntil.toISOString()}`
+        : 'User blocked successfully',
+      user: mapPublicUser(updated),
+    };
+  }
+
+  async unblockUser(targetUserId: number, moderatorUserId: number) {
+    if (targetUserId === moderatorUserId) {
+      throw new BadRequestException('You cannot unblock yourself');
+    }
+
+    const target = await this.prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { id: true, isBlocked: true },
+    });
+    if (!target) throw new NotFoundException('User not found');
+
+    const updated = await this.prisma.user.update({
+      where: { id: targetUserId },
+      data: { isBlocked: false, blockedUntil: null },
+      select: this.moderationUserSelect,
+    });
+
+    return {
+      message: target.isBlocked ? 'User unblocked successfully' : 'User was not blocked',
+      user: mapPublicUser(updated),
+    };
+  }
+
+  /** Отправляет пользователю предупреждение модератора в виде уведомления с произвольным текстом. */
+  async warnUser(targetUserId: number, moderatorId: number, message: string) {
+    if (targetUserId === moderatorId) {
+      throw new BadRequestException('You cannot warn yourself');
+    }
+
+    const target = await this.prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { id: true },
+    });
+    if (!target) throw new NotFoundException('User not found');
+
+    await this.notifications.createNotification({
+      userId: targetUserId,
+      senderId: moderatorId,
+      type: 'WARNING',
+      message,
+    });
+
+    return { message: 'Warning sent to user' };
+  }
+
+  /** Назначение роли пользователю. Доступно только администратору. */
+  async updateUserRole(
+    targetUserId: number,
+    newRole: 'USER' | 'MODERATOR' | 'ADMIN',
+    actingAdminId: number,
+  ) {
+    if (targetUserId === actingAdminId) {
+      throw new BadRequestException('You cannot change your own role');
+    }
+
+    const target = await this.prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { id: true, role: true },
+    });
+    if (!target) throw new NotFoundException('User not found');
+
+    const updated = await this.prisma.user.update({
+      where: { id: targetUserId },
+      data: { role: newRole },
       select: {
         id: true,
         username: true,
@@ -689,7 +788,10 @@ export class UsersService {
     });
 
     return {
-      message: target.isBlocked ? 'User is already blocked' : 'User blocked successfully',
+      message:
+        target.role === newRole
+          ? `User already has role ${newRole}`
+          : `Role updated to ${newRole}`,
       user: mapPublicUser(updated),
     };
   }

@@ -11,6 +11,7 @@ import * as bcrypt from 'bcrypt';
 import { randomBytes } from 'crypto';
 import { UserRole } from '@prisma/client';
 import { XpService } from '../xp/xp.service';
+import { isUserCurrentlyBlocked } from '../common/block-status';
 
 type GoogleProfileData = {
   email: string;
@@ -88,7 +89,9 @@ export class AuthService {
           where: { username: identifier },
         });
     if (!user) throw new UnauthorizedException('Invalid credentials');
-    if (user.isBlocked) throw new UnauthorizedException('User is blocked');
+    if (await isUserCurrentlyBlocked(this.prisma, user)) {
+      throw new UnauthorizedException('User is blocked');
+    }
 
     const valid = await bcrypt.compare(dto.password, user.password);
     if (!valid) throw new UnauthorizedException('Invalid credentials');
@@ -135,7 +138,9 @@ export class AuthService {
         data: { avatar: profile.photo },
       });
     }
-    if (user.isBlocked) throw new UnauthorizedException('User is blocked');
+    if (await isUserCurrentlyBlocked(this.prisma, user)) {
+      throw new UnauthorizedException('User is blocked');
+    }
     await this.xp.awardDailyLoginXp(user.id);
 
     const refreshed = await this.prisma.user.findUnique({

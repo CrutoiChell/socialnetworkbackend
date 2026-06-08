@@ -9,6 +9,8 @@ type CreateNotificationInput = {
   senderId: number;
   type: NotificationType;
   entityId?: number | null;
+  /** Произвольный текст уведомления (например, для предупреждений модераторов). Перекрывает автогенерируемый текст. */
+  message?: string | null;
 };
 
 @Injectable()
@@ -30,13 +32,20 @@ export class NotificationsService {
         return `${username} проголосовал(а) в вашем опросе`;
       case 'MENTION':
         return `${username} упомянул(а) вас`;
+      case 'WARNING':
+        return `${username} отправил(а) вам предупреждение`;
+      case 'BOOST_ENDED':
+        return 'Буст вашего поста закончился';
       default:
         return `${username} отправил(а) уведомление`;
     }
   }
 
   async createNotification(input: CreateNotificationInput) {
-    if (input.userId === input.senderId) return null;
+    // Системные уведомления (например, окончание буста) формально шлются
+    // "от" самого пользователя — их не нужно глушить self-check'ом.
+    const isSystemType = input.type === 'BOOST_ENDED';
+    if (!isSystemType && input.userId === input.senderId) return null;
 
     const notification = await this.prisma.notification.create({
       data: {
@@ -44,6 +53,7 @@ export class NotificationsService {
         senderId: input.senderId,
         type: input.type,
         entityId: input.entityId ?? null,
+        message: input.message ?? null,
       },
       include: {
         sender: {
@@ -69,7 +79,7 @@ export class NotificationsService {
       isRead: notification.isRead,
       createdAt: notification.createdAt,
       sender,
-      message: this.buildMessage(notification.type, sender.username),
+      message: notification.message ?? this.buildMessage(notification.type, sender.username),
     };
 
     this.socketEvents.emitToUser(notification.userId, 'notification:received', payload);
@@ -116,7 +126,7 @@ export class NotificationsService {
           isRead: n.isRead,
           createdAt: n.createdAt,
           sender,
-          message: this.buildMessage(n.type, sender.username),
+          message: n.message ?? this.buildMessage(n.type, sender.username),
         };
       }),
       totalCount,

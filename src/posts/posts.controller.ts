@@ -52,8 +52,8 @@ export class PostsController {
     }),
     limits: { fileSize: 30 * 1024 * 1024 },
     fileFilter: (_req, file, cb) => {
-      if (!/^(image\/(jpeg|png|gif)|video\/(mp4|webm))$/.test(file.mimetype)) {
-        cb(new Error('Only JPEG, PNG, GIF, MP4, WebM'), false);
+      if (!/^(image\/(jpeg|png|gif|webp)|video\/(mp4|webm))$/.test(file.mimetype)) {
+        cb(new Error('Only JPEG, PNG, GIF, WebP, MP4, WebM'), false);
         return;
       }
       cb(null, true);

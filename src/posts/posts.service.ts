@@ -1,9 +1,11 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { Prisma, PostMediaType, UserRole } from '@prisma/client';
 import { mapPublicUser, toAbsoluteMediaUrl } from '../common/public-url';
 import { PrismaService } from '../prisma/prisma.service';
@@ -17,6 +19,8 @@ import { CreateCommentDto } from './dto/create-comment.dto';
 /** Первая страница ленты: 3 поста под сетку (1 крупный + 2 компактных). */
 const FEED_FIRST_PAGE_LAYOUT_SIZE = 3;
 const FEED_PINNED_MEDIA_COUNT = 5;
+/** Срок действия буста — спустя это время он снимается автоматически. */
+const BOOST_DURATION_MS = 3 * 24 * 60 * 60 * 1000;
 const PREMIUM_MAX_FILE_SIZE = 30 * 1024 * 1024;
 const DEFAULT_MAX_FILE_SIZE = 8 * 1024 * 1024;
 const PREMIUM_MAX_FILES = 10;
@@ -60,6 +64,8 @@ type PostWithFeed = Prisma.PostGetPayload<{
 
 @Injectable()
 export class PostsService {
+  private readonly logger = new Logger(PostsService.name);
+
   constructor(
     private prisma: PrismaService,
     private users: UsersService,
@@ -550,11 +556,28 @@ export class PostsService {
     const skip = (safePage - 1) * take;
     const totalCount = await this.prisma.post.count({ where });
 
+    // Забустенные посты всегда идут первыми в ленте — это отдельный блок,
+    // независимый от подборки медиа (буст доступен и для опросов, которые
+    // в подборку медиа не попадают из-за isPoll: false).
+    const boosted = await this.prisma.post.findMany({
+      where: { ...where, isBoosted: true },
+      orderBy,
+      select: { id: true },
+    });
+    const boostedIds = boosted.map((p) => p.id);
+    const boostedCount = boostedIds.length;
+    const boostedStart = Math.min(skip, boostedCount);
+    const boostedEnd = Math.min(skip + take, boostedCount);
+    const boostedSliceIds = boostedIds.slice(boostedStart, boostedEnd);
+    const afterBoostSkip = Math.max(skip - boostedCount, 0);
+    const afterBoostTake = Math.max(take - boostedSliceIds.length, 0);
+
     const pinnedWhere: Prisma.PostWhereInput = {
       ...where,
       isPoll: false,
       pollId: null,
       medias: { some: {} },
+      id: boostedIds.length ? { notIn: boostedIds } : undefined,
     };
     const pinned = await this.prisma.post.findMany({
       where: pinnedWhere,
@@ -564,14 +587,21 @@ export class PostsService {
     });
     const pinnedIds = pinned.map((p) => p.id);
     const pinnedCount = pinnedIds.length;
-    const pinnedStart = Math.min(skip, pinnedCount);
-    const pinnedEnd = Math.min(skip + take, pinnedCount);
+    const pinnedStart = Math.min(afterBoostSkip, pinnedCount);
+    const pinnedEnd = Math.min(afterBoostSkip + afterBoostTake, pinnedCount);
     const pinnedSliceIds = pinnedIds.slice(pinnedStart, pinnedEnd);
-    const restSkip = Math.max(skip - pinnedCount, 0);
-    const restTake = Math.max(take - pinnedSliceIds.length, 0);
+    const restSkip = Math.max(afterBoostSkip - pinnedCount, 0);
+    const restTake = Math.max(afterBoostTake - pinnedSliceIds.length, 0);
+    const excludedIds = [...boostedIds, ...pinnedIds];
 
     if (timing) console.time('getPosts: prisma.findMany');
-    const [pinnedRowsRaw, restRows] = await Promise.all([
+    const [boostedRowsRaw, pinnedRowsRaw, restRows] = await Promise.all([
+      boostedSliceIds.length
+        ? this.prisma.post.findMany({
+            where: { ...where, id: { in: boostedSliceIds } },
+            include,
+          })
+        : ([] as PostWithFeed[]),
       pinnedSliceIds.length
         ? this.prisma.post.findMany({
             where: { ...where, id: { in: pinnedSliceIds } },
@@ -582,7 +612,7 @@ export class PostsService {
         ? this.prisma.post.findMany({
             where: {
               ...where,
-              id: pinnedIds.length ? { notIn: pinnedIds } : undefined,
+              id: excludedIds.length ? { notIn: excludedIds } : undefined,
             },
             skip: restSkip,
             take: restTake,
@@ -593,11 +623,16 @@ export class PostsService {
     ]);
     if (timing) console.timeEnd('getPosts: prisma.findMany');
 
+    const boostedMap = new Map(boostedRowsRaw.map((row) => [row.id, row]));
+    const boostedRows = boostedSliceIds
+      .map((id) => boostedMap.get(id))
+      .filter((row): row is PostWithFeed => !!row);
+
     const pinnedMap = new Map(pinnedRowsRaw.map((row) => [row.id, row]));
     const pinnedRows = pinnedSliceIds
       .map((id) => pinnedMap.get(id))
       .filter((row): row is PostWithFeed => !!row);
-    const rows = [...pinnedRows, ...restRows];
+    const rows = [...boostedRows, ...pinnedRows, ...restRows];
 
     if (timing) console.time('getPosts: map');
     const firstPageLayout: Array<{
@@ -775,12 +810,40 @@ export class PostsService {
         where: { id: userId },
         data: { boostTokens: { decrement: 1 } },
       });
+      const boostedUntil = new Date(now.getTime() + BOOST_DURATION_MS);
       await tx.post.update({
         where: { id: postId },
-        data: { isBoosted: true },
+        data: { isBoosted: true, boostedUntil },
       });
-      return { boosted: true, postId, boostTokensLeft: tokens - 1 };
+      return { boosted: true, postId, boostTokensLeft: tokens - 1, boostedUntil };
     });
+  }
+
+  /** Снимает истёкшие бусты и уведомляет авторов о завершении продвижения. */
+  @Cron(CronExpression.EVERY_10_MINUTES)
+  async expireBoosts() {
+    const now = new Date();
+    const expired = await this.prisma.post.findMany({
+      where: { isBoosted: true, boostedUntil: { lte: now } },
+      select: { id: true, userId: true },
+    });
+    if (expired.length === 0) return;
+
+    await this.prisma.post.updateMany({
+      where: { id: { in: expired.map((p) => p.id) } },
+      data: { isBoosted: false, boostedUntil: null },
+    });
+
+    for (const post of expired) {
+      await this.notifications.createNotification({
+        userId: post.userId,
+        senderId: post.userId,
+        type: 'BOOST_ENDED',
+        entityId: post.id,
+        message: 'Буст вашего поста закончился — он больше не закреплён в топе ленты',
+      });
+    }
+    this.logger.log(`Expired ${expired.length} boost(s)`);
   }
 
   async getPostComments(

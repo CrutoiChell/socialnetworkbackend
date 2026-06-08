@@ -27,6 +27,9 @@ import { CustomizeColorDto } from './dto/customize-color.dto';
 import { ChangeUsernameDto } from './dto/change-username.dto';
 import { SetThemeDto } from './dto/set-theme.dto';
 import { UpdateBannerDto } from './dto/update-banner.dto';
+import { UpdateRoleDto } from './dto/update-role.dto';
+import { BlockUserDto } from './dto/block-user.dto';
+import { WarnUserDto } from './dto/warn-user.dto';
 
 const avatarsDir = join(process.cwd(), 'uploads', 'avatars');
 const bannersDir = join(process.cwd(), 'uploads', 'banners');
@@ -245,8 +248,33 @@ export class UsersController {
   @Post(':id/block')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('ADMIN', 'MODERATOR')
-  blockUser(@CurrentUserId() userId: number, @Param('id') id: string) {
-    return this.users.blockUser(parseUserIdParam(id), userId);
+  blockUser(@CurrentUserId() userId: number, @Param('id') id: string, @Body() dto: BlockUserDto) {
+    return this.users.blockUser(parseUserIdParam(id), userId, dto.hours);
+  }
+
+  @Post(':id/unblock')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN', 'MODERATOR')
+  unblockUser(@CurrentUserId() userId: number, @Param('id') id: string) {
+    return this.users.unblockUser(parseUserIdParam(id), userId);
+  }
+
+  @Post(':id/warn')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN', 'MODERATOR')
+  warnUser(@CurrentUserId() userId: number, @Param('id') id: string, @Body() dto: WarnUserDto) {
+    return this.users.warnUser(parseUserIdParam(id), userId, dto.message);
+  }
+
+  @Patch(':id/role')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN')
+  updateRole(
+    @CurrentUserId() adminId: number,
+    @Param('id') id: string,
+    @Body() dto: UpdateRoleDto,
+  ) {
+    return this.users.updateUserRole(parseUserIdParam(id), dto.role, adminId);
   }
 
   @Delete(':id/unsubscribe')

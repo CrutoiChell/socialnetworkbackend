@@ -36,6 +36,8 @@ enum NotificationType {
   FOLLOW
   VOTE
   MENTION
+  WARNING
+  BOOST_ENDED
 }
 
 enum UserTheme {
@@ -64,6 +66,8 @@ model User {
   createdAt DateTime @default(now())
   role      UserRole @default(USER)
   isBlocked Boolean  @default(false)
+  /// Если задано — временная блокировка истекает в это время (auto-снимается при следующей проверке доступа).
+  blockedUntil DateTime?
   isPremium Boolean  @default(false)
   premiumUntil DateTime?
   boostTokens Int @default(3)
@@ -138,6 +142,8 @@ model Post {
   isAd      Boolean  @default(false)
   adTargetUrl String?
   isBoosted Boolean  @default(false)
+  /// Когда действие буста истекает — после этого момента буст снимается автоматически
+  boostedUntil DateTime?
   locationName String?
   locationLat  Float?
   locationLng  Float?
@@ -283,6 +289,8 @@ model Notification {
   senderId  Int
   type      NotificationType
   entityId  Int?
+  /// Произвольный текст уведомления (используется, например, для предупреждений модераторов).
+  message   String?
   isRead    Boolean          @default(false)
   createdAt DateTime         @default(now())
 
